@@ -85,7 +85,7 @@ class FractalGrid:
                 
     def _fractal_weight(self, x, y, w, h, depth):
         """Calculate fractal weight using recursive pattern"""
-        if depth <= 0:
+        if depth <= 0 or w <= 1 or h <= 1:
             return 1.0
             
         # Normalize coordinates
@@ -95,8 +95,10 @@ class FractalGrid:
         # Create fractal pattern
         base_weight = 1 + 0.5 * math.sin(nx * math.pi * 2) * math.cos(ny * math.pi * 2)
         
-        # Recursive subdivision
-        sub_weight = self._fractal_weight(x % (w//2), y % (h//2), w//2, h//2, depth-1)
+        # Recursive subdivision with safety checks
+        half_w = max(1, w // 2)
+        half_h = max(1, h // 2)
+        sub_weight = self._fractal_weight(x % half_w, y % half_h, half_w, half_h, depth-1)
         
         return base_weight * (1 + sub_weight * 0.3)
     
