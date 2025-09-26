@@ -11,6 +11,8 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey,
 from cryptography.hazmat.primitives import serialization
 import time
 import math
+import json
+import pickle
 
 class DNAMod9Tuner:
     """DNA-inspired modulo 9 tuning system for quantum flux optimization"""
@@ -137,6 +139,219 @@ class PrimeCore:
             'velocity': np.array([0.0, 0.0, 0.0]),
             'heading': 0.0
         }
+        self.metadata = {}
+        self.provenance_chain = []
+        
+    def add_metadata(self, key, value):
+        """Add metadata to the PRIMECORE system"""
+        self.metadata[key] = value
+        timestamp = time.time()
+        self.add_provenance(f"metadata_added:{key}", timestamp)
+        
+    def add_ros_data(self, multifractal_params):
+        """Add ROS data with multifractal params (h(q)=0.82)"""
+        ros_data = {
+            'h_q2': multifractal_params.get('h_q2', 0.82),
+            'delta_h': multifractal_params.get('delta_h', 0.5),
+            'mandelbrot_d': multifractal_params.get('mandelbrot_d', 1.5),
+            'timestamp': time.time()
+        }
+        self.add_metadata('multifractal_params', ros_data)
+        return self.ros_node.publish_nav_data(ros_data)
+    
+    def sign(self, private_key_path=None):
+        """Sign the current system state with Ed25519"""
+        if private_key_path:
+            # Load private key from file if provided
+            try:
+                with open(private_key_path, 'rb') as key_file:
+                    private_key = serialization.load_pem_private_key(
+                        key_file.read(), password=None
+                    )
+                signature_data = private_key.sign(self._get_state_bytes())
+            except Exception as e:
+                print(f"Error loading private key: {e}")
+                signature_data = self.security.sign_vessel_command(self._get_state_bytes())
+        else:
+            signature_data = self.security.sign_vessel_command(self._get_state_bytes())
+        
+        signature_info = {
+            'signature': signature_data,
+            'timestamp': time.time(),
+            'state_hash': BLAKE3Hash.hash_data(self._get_state_bytes())
+        }
+        
+        self.add_metadata('signature', signature_info)
+        self.add_provenance("system_signed", signature_info['timestamp'])
+        return signature_info
+    
+    def verify_signature(self, signature_info=None):
+        """Verify Ed25519 signature of system state"""
+        if signature_info is None:
+            signature_info = self.metadata.get('signature')
+        
+        if not signature_info:
+            return False
+        
+        try:
+            current_state = self._get_state_bytes()
+            return self.security.verify_command(current_state, signature_info['signature'])
+        except Exception as e:
+            print(f"Signature verification failed: {e}")
+            return False
+    
+    def to_dict(self):
+        """Convert PRIMECORE system to dictionary representation"""
+        return {
+            'vessel_state': {
+                'position': self.vessel_state['position'].tolist(),
+                'velocity': self.vessel_state['velocity'].tolist(),
+                'heading': self.vessel_state['heading']
+            },
+            'metadata': self.metadata,
+            'dna_flux_level': self.dna_tuner.flux_level,
+            'provenance_chain': self.provenance_chain,
+            'timestamp': time.time()
+        }
+    
+    def save(self, filepath):
+        """Save PRIMECORE system state to file"""
+        try:
+            data = self.to_dict()
+            with open(filepath, 'w') as f:
+                json.dump(data, f, indent=2, default=str)
+            
+            self.add_provenance(f"system_saved:{filepath}", time.time())
+            return True
+        except Exception as e:
+            print(f"Save failed: {e}")
+            return False
+    
+    def load(self, filepath):
+        """Load PRIMECORE system state from file"""
+        try:
+            with open(filepath, 'r') as f:
+                data = json.load(f)
+            
+            # Restore vessel state
+            self.vessel_state['position'] = np.array(data['vessel_state']['position'])
+            self.vessel_state['velocity'] = np.array(data['vessel_state']['velocity'])
+            self.vessel_state['heading'] = data['vessel_state']['heading']
+            
+            # Restore metadata and provenance
+            self.metadata = data.get('metadata', {})
+            self.provenance_chain = data.get('provenance_chain', [])
+            
+            # Restore DNA tuner
+            self.dna_tuner.flux_level = data.get('dna_flux_level', 3)
+            
+            self.add_provenance(f"system_loaded:{filepath}", time.time())
+            return True
+        except Exception as e:
+            print(f"Load failed: {e}")
+            return False
+    
+    def export_to_ros_params(self):
+        """Export system parameters for ROS integration"""
+        ros_params = {
+            'aurobot': {
+                'navigation': {
+                    'dna_flux_level': self.dna_tuner.flux_level,
+                    'position': self.vessel_state['position'].tolist(),
+                    'heading': self.vessel_state['heading'],
+                    'multifractal_h_q2': self.metadata.get('multifractal_params', {}).get('h_q2', 0.82)
+                },
+                'security': {
+                    'public_key': self.security.get_public_key_pem().decode('utf-8'),
+                    'blake3_enabled': True
+                }
+            }
+        }
+        return ros_params
+    
+    def import_from_ros_params(self, ros_params):
+        """Import parameters from ROS parameter structure"""
+        try:
+            nav_params = ros_params.get('aurobot', {}).get('navigation', {})
+            
+            if 'dna_flux_level' in nav_params:
+                self.dna_tuner.flux_level = nav_params['dna_flux_level']
+            
+            if 'position' in nav_params:
+                self.vessel_state['position'] = np.array(nav_params['position'])
+            
+            if 'heading' in nav_params:
+                self.vessel_state['heading'] = nav_params['heading']
+            
+            if 'multifractal_h_q2' in nav_params:
+                self.add_ros_data({'h_q2': nav_params['multifractal_h_q2']})
+            
+            self.add_provenance("ros_params_imported", time.time())
+            return True
+        except Exception as e:
+            print(f"ROS params import failed: {e}")
+            return False
+    
+    def save_to_rosbag(self, bag_path, topic_name='/auro_state'):
+        """Save system state to ROS bag format (mock implementation)"""
+        # Mock implementation since rosbags require ROS2
+        bag_data = {
+            'topic': topic_name,
+            'timestamp': time.time(),
+            'data': self.to_dict()
+        }
+        
+        try:
+            with open(f"{bag_path}.json", 'w') as f:
+                json.dump(bag_data, f, indent=2, default=str)
+            
+            self.add_provenance(f"rosbag_saved:{bag_path}", time.time())
+            return True
+        except Exception as e:
+            print(f"ROSbag save failed: {e}")
+            return False
+    
+    def load_from_rosbag(self, bag_path, topic_name='/auro_state'):
+        """Load system state from ROS bag format (mock implementation)"""
+        try:
+            with open(f"{bag_path}.json", 'r') as f:
+                bag_data = json.load(f)
+            
+            if bag_data['topic'] == topic_name:
+                # Import the data (similar to load but from bag structure)
+                data = bag_data['data']
+                self.vessel_state['position'] = np.array(data['vessel_state']['position'])
+                self.vessel_state['velocity'] = np.array(data['vessel_state']['velocity'])
+                self.vessel_state['heading'] = data['vessel_state']['heading']
+                
+                self.add_provenance(f"rosbag_loaded:{bag_path}", time.time())
+                return True
+        except Exception as e:
+            print(f"ROSbag load failed: {e}")
+            return False
+    
+    def add_provenance(self, action, timestamp=None):
+        """Add provenance entry to the chain"""
+        if timestamp is None:
+            timestamp = time.time()
+        
+        provenance_entry = {
+            'action': action,
+            'timestamp': timestamp,
+            'vessel_position': self.vessel_state['position'].tolist(),
+            'dna_flux': self.dna_tuner.flux_level
+        }
+        
+        self.provenance_chain.append(provenance_entry)
+        
+        # Keep only last 100 entries to prevent unbounded growth
+        if len(self.provenance_chain) > 100:
+            self.provenance_chain = self.provenance_chain[-100:]
+    
+    def _get_state_bytes(self):
+        """Get current system state as bytes for signing"""
+        state_str = json.dumps(self.to_dict(), sort_keys=True, default=str)
+        return state_str.encode('utf-8')
         
     def secure_navigation_command(self, target_position):
         """Generate secure navigation command with DNA tuning"""
