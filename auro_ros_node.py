@@ -17,6 +17,9 @@ except ImportError:
     print("ROS2 not available - node functionality will be limited")
     ROS2_AVAILABLE = False
 
+# Import our rift_weaver algorithm
+from rift_weaver import rift_weaver
+
 class AuroPublisher(Node if ROS2_AVAILABLE else object):
     def __init__(self):
         if ROS2_AVAILABLE:
@@ -26,18 +29,28 @@ class AuroPublisher(Node if ROS2_AVAILABLE else object):
         else:
             print("ROS2 not available - creating mock publisher")
             self.pub = None
+        
+        # Define a test grid for φ-path generation
+        self.test_grid = [[0,1,0,0,0], [0,0,1,0,1], [1,0,0,1,0], [0,1,0,0,0], [0,0,1,0,0]]
 
     def publish_mock_path(self):
+        # Generate φ-enhanced path using RiftWeaver algorithm
+        phi_path = rift_weaver(self.test_grid, (0,0), (4,4))
+        
         if not ROS2_AVAILABLE:
-            print("Mock φ-path: [(0,0), (0,1), (1,1), (1,2), (2,2), (3,2), (3,3), (4,3), (4,4)]")
+            print(f"Mock φ-path: {phi_path}")
+            return
+        
+        if phi_path is None:
+            self.get_logger().warn('No valid φ-path found')
             return
         
         msg = Path()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = 'map'
-        # Mock φ-path from rift_weaver
-        mock_path = [(0,0), (0,1), (1,1), (1,2), (2,2), (3,2), (3,3), (4,3), (4,4)]  # Example φ-enhanced path
-        for pos in mock_path:
+        
+        # Convert φ-path to ROS2 Path message
+        for pos in phi_path:
             pose = PoseStamped()
             pose.header.stamp = self.get_clock().now().to_msg()
             pose.header.frame_id = 'map'
@@ -47,7 +60,7 @@ class AuroPublisher(Node if ROS2_AVAILABLE else object):
             pose.pose.orientation.w = 1.0  # Identity quaternion
             msg.poses.append(pose)
         self.pub.publish(msg)
-        self.get_logger().info('Published mock φ-path with {} waypoints'.format(len(mock_path)))
+        self.get_logger().info('Published φ-enhanced path with {} waypoints: {}'.format(len(phi_path), phi_path))
 
 def main(args=None):
     if not ROS2_AVAILABLE:
